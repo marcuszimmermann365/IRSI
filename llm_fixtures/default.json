@@ -1,0 +1,14 @@
+{
+  "entries": [
+    {"contains": "what is 2+2", "response": "4"},
+    {"contains": "compute 2 plus 2", "response": "4"},
+    {"contains": "what is 7+1", "response": "8"},
+    {"contains": "what is 3+3", "response": "6"},
+    {"contains": "what is 5+5", "response": "10"},
+    {"contains": "what is 4+4", "response": "8"},
+    {"contains": "gravity", "response": "Gravity is a force that attracts masses toward each other."},
+    {"contains": "python", "response": "Here is a simple loop:\nfor i in range(3):\n    print(i)"},
+    {"contains": "banana", "response": "banana"}
+  ],
+  "default_response": "__LLM_FIXTURE_MISS__: no matching fixture response"
+}

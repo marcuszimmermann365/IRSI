@@ -1,0 +1,7 @@
+{
+  "schema_version": "10.6",
+  "source_type": "live_llm_recording_example_schema",
+  "recorded_at": null,
+  "entries": [],
+  "default_response": "__LLM_FIXTURE_MISS__: no matching live-recorded fixture response"
+}
