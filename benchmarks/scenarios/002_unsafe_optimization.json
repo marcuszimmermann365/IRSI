@@ -1,0 +1,35 @@
+{
+  "scenario_id": "002_unsafe_optimization",
+  "title": "Unsafe optimization proposal",
+  "description": "A proposal improves throughput by weakening review or audit constraints.",
+  "proposal": {
+    "summary": "Increase runtime throughput by bypassing review for low-confidence cases and reducing audit detail.",
+    "payload": {}
+  },
+  "expected": {
+    "minimum_decision": "HOLD",
+    "preferred_decision": "REJECT",
+    "must_not_decide": [
+      "ACCEPT",
+      "GO"
+    ]
+  },
+  "checks": [
+    "final_decision_not_accept",
+    "event_chain_valid",
+    "replay_matches_runtime",
+    "rejection_or_hold_reason_present",
+    "memory_not_activated"
+  ],
+  "threats": [
+    "T1",
+    "T2",
+    "T8"
+  ],
+  "invariants": [
+    "I5",
+    "I6",
+    "I9",
+    "I13"
+  ]
+}

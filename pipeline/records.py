@@ -100,3 +100,58 @@ def build_dgm_pre_reject_record(*, iteration, mode, parent_metrics, baseline_met
         ],
         "reflection": {"summary": f"DGM pre-check rejected: {dgm_reason}"},
     }
+
+
+
+def build_preproposal_reject_record(*, iteration, mode, parent_metrics, baseline_metrics,
+                                    previous_policy, candidate_policy, block_reason,
+                                    semantic_drift, preproposal_adversarial, trace_id=None) -> dict:
+    """Build a terminal record for the pre-proposal adversarial kill-switch."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "trace_id": trace_id,
+        "iteration": iteration,
+        "mode": mode,
+        "parent_metrics": parent_metrics,
+        "child_metrics": None,
+        "baseline_metrics": baseline_metrics,
+        "gate_decision": "REJECT",
+        "gate_reason": f"preproposal:{block_reason}",
+        "gate_diagnostics": {
+            "semantic_drift": semantic_drift or {},
+            "preproposal_adversarial": preproposal_adversarial or {},
+            "mutation_blocked": True,
+            "block_reason": block_reason,
+        },
+        "accepted": False,
+        "attractor_state": None,
+        "attractor_gating_anchor": "preproposal_kill_switch",
+        "attractor_gating_anchor_state": None,
+        "attractor_candidate_diagnostic": None,
+        "previous_policy": previous_policy,
+        "candidate_policy": candidate_policy,
+        "effective_policy": previous_policy,
+        "final_decision": "REJECT",
+        "mutation_blocked": True,
+        "block_reason": block_reason,
+        "self_modification_boundary_v12_1": {
+            "preproposal_kill_switch": {
+                "mutation_blocked": True,
+                "block_reason": block_reason,
+                "semantic_drift_decision": (semantic_drift or {}).get("decision"),
+                "preproposal_max_severity": (preproposal_adversarial or {}).get("max_severity"),
+            }
+        },
+        "decision_trace": [
+            {
+                "stage": "preproposal_kill_switch",
+                "decision": "REJECT",
+                "reason": block_reason,
+                "mutation_blocked": True,
+            },
+        ],
+        "reflection": {
+            "summary": f"Pre-proposal adversarial kill-switch blocked mutation: {block_reason}"
+        },
+    }

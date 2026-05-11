@@ -13,7 +13,7 @@ from version import SCHEMA_VERSION
 
 
 def test_schema_version_v111():
-    assert SCHEMA_VERSION in {"11.1", "11.2", "11.3", "11.4", "11.5", "11.6", "12.0"}
+    assert SCHEMA_VERSION in {"11.1", "11.2", "11.3", "11.4", "11.5", "11.6", "12.0", "12.1.0", "12.2.0", "13.0.0"}
 
 
 def test_ed25519_audit_signature_and_verification(tmp_path, monkeypatch):

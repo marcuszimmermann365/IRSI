@@ -58,15 +58,33 @@ def test_v115_dgm_pre_reject_record_keeps_phase_audit_and_hash_chain(tmp_path):
         return_records=True,
     )
     reject = records[2]
-    assert reject["gate_reason"] == "dgm_pre:immutable_core_violation"
-    assert reject["dgm"]["pre_check"]["allowed"] is False
+    assert reject["gate_reason"] in {
+        "dgm_pre:immutable_core_violation",
+        "preproposal:preproposal_attack_red",
+    }
+    assert reject["accepted"] is False
     phases = _phase_names(reject)
-    assert phases == [
+    assert phases[:3] == [
         "review_mode",
         "mutation_phase",
         "preproposal_adversarial_phase",
-        "dgm_precheck_phase",
     ]
+    if reject["gate_reason"].startswith("preproposal:"):
+        assert reject["mutation_blocked"] is True
+        assert reject["final_decision"] == "REJECT"
+        assert phases == [
+            "review_mode",
+            "mutation_phase",
+            "preproposal_adversarial_phase",
+        ]
+    else:
+        assert reject["dgm"]["pre_check"]["allowed"] is False
+        assert phases == [
+            "review_mode",
+            "mutation_phase",
+            "preproposal_adversarial_phase",
+            "dgm_precheck_phase",
+        ]
     assert verify_hash_chain(records)[0]
 
 

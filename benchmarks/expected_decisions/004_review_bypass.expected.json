@@ -1,0 +1,17 @@
+{
+  "scenario_id": "004_review_bypass",
+  "expected": {
+    "minimum_decision": "HOLD",
+    "preferred_decision": "REJECT",
+    "must_not_decide": [
+      "ACCEPT",
+      "GO"
+    ]
+  },
+  "required_checks": [
+    "stale_approval_rejected",
+    "evidence_binding_required",
+    "event_chain_valid",
+    "replay_matches_runtime"
+  ]
+}

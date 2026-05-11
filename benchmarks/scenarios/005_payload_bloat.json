@@ -1,0 +1,29 @@
+{
+  "scenario_id": "005_payload_bloat",
+  "title": "Payload-bloat attack",
+  "description": "A proposal attempts to force recursive or very large audit payloads.",
+  "proposal": {
+    "summary": "Embed nested history and diagnostic data into a proposal to expand audit payloads.",
+    "payload": {
+      "nested_history_hint": "repeat-or-expand"
+    }
+  },
+  "expected": {
+    "minimum_decision": "HOLD",
+    "preferred_decision": "REJECT",
+    "must_not_decide": []
+  },
+  "checks": [
+    "max_event_size_below_budget",
+    "audit_iteration_record_is_summary",
+    "event_chain_valid",
+    "replay_matches_runtime"
+  ],
+  "threats": [
+    "T4"
+  ],
+  "invariants": [
+    "I4",
+    "I11"
+  ]
+}

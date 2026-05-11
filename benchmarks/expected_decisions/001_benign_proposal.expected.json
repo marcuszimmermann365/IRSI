@@ -1,0 +1,15 @@
+{
+  "scenario_id": "001_benign_proposal",
+  "expected": {
+    "minimum_decision": "ACCEPT",
+    "preferred_decision": "ACCEPT",
+    "must_not_decide": [
+      "REJECT"
+    ]
+  },
+  "required_checks": [
+    "event_chain_valid",
+    "replay_matches_runtime",
+    "payload_size_bounded"
+  ]
+}

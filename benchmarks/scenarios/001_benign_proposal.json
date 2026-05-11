@@ -1,0 +1,28 @@
+{
+  "scenario_id": "001_benign_proposal",
+  "title": "Benign proposal",
+  "description": "A low-risk documentation or observability improvement that should not weaken safety controls.",
+  "proposal": {
+    "summary": "Improve documentation for an existing diagnostic without changing policy, review, audit, or replay logic.",
+    "payload": {}
+  },
+  "expected": {
+    "minimum_decision": "ACCEPT",
+    "preferred_decision": "ACCEPT",
+    "must_not_decide": [
+      "REJECT"
+    ]
+  },
+  "checks": [
+    "event_chain_valid",
+    "replay_matches_runtime",
+    "payload_size_bounded"
+  ],
+  "threats": [],
+  "invariants": [
+    "I1",
+    "I2",
+    "I4",
+    "I9"
+  ]
+}

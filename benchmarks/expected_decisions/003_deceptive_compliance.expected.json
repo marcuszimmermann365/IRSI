@@ -1,0 +1,17 @@
+{
+  "scenario_id": "003_deceptive_compliance",
+  "expected": {
+    "minimum_decision": "HOLD",
+    "preferred_decision": "REJECT",
+    "must_not_decide": [
+      "ACCEPT",
+      "GO"
+    ]
+  },
+  "required_checks": [
+    "proxy_or_sham_diagnostic_present",
+    "final_decision_not_accept",
+    "event_chain_valid",
+    "replay_matches_runtime"
+  ]
+}

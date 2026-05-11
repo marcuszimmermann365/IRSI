@@ -23,8 +23,13 @@ from dataclasses import asdict, dataclass
 from typing import Any, ClassVar
 
 from config import BASE_PROMPT
+from invariants import (
+    assert_dgm_precheck_respects_block,
+    assert_mutation_blocked_has_terminal,
+    assert_preproposal_not_red_and_accepted,
+)
 from pipeline.phase_runtime import ContextRegistry, PhaseResult
-from pipeline.records import build_dgm_pre_reject_record
+from pipeline.records import build_dgm_pre_reject_record, build_preproposal_reject_record
 
 
 def _proposal_to_dict(proposal: Any) -> dict[str, Any] | Any:
@@ -150,6 +155,17 @@ class PreProposalAdversarialPhaseInput:
     semantic_drift_monitor: Any
     preproposal_adversarial_orchestrator: Any
     baseline_prompt: str = BASE_PROMPT
+    iteration: int | None = None
+    governance_mode: str = "unknown"
+    parent_metrics: dict[str, Any] | None = None
+    baseline_metrics: dict[str, Any] | None = None
+    previous_policy: dict[str, Any] | None = None
+    audit_recorder: Any | None = None
+    storage: Any | None = None
+    persistence_stage: Any | None = None
+    history: list[dict[str, Any]] | None = None
+    phase_audit: list[dict[str, Any]] | None = None
+    trace_id: str | None = None
 
 
 class PreProposalAdversarialPhase:
@@ -167,6 +183,21 @@ class PreProposalAdversarialPhase:
 
     def build_input(self, registry: ContextRegistry) -> PreProposalAdversarialPhaseInput:
         values = registry.require(self.required_keys)
+        values.update(
+            {
+                "iteration": registry.get("iteration"),
+                "governance_mode": registry.get("governance_mode", "unknown"),
+                "parent_metrics": registry.get("parent_metrics", {}),
+                "baseline_metrics": registry.get("baseline_metrics", {}),
+                "previous_policy": registry.get("previous_policy", {}),
+                "audit_recorder": registry.get("audit_recorder"),
+                "storage": registry.get("storage"),
+                "persistence_stage": registry.get("persistence_stage"),
+                "history": registry.get("history", []),
+                "phase_audit": registry.get("phase_audit", []),
+                "trace_id": registry.get("trace_id"),
+            }
+        )
         return PreProposalAdversarialPhaseInput(**values)
 
     @staticmethod
@@ -205,25 +236,89 @@ class PreProposalAdversarialPhase:
         if phase_input is None:
             phase_input = PreProposalAdversarialPhaseInput(**kwargs)
             return self.evaluate(phase_input)
+
         out = self.evaluate(phase_input)
         decision = "RED" if out.blockers else "YELLOW" if out.warnings else "GREEN"
         reason = ",".join(out.blockers or out.warnings or ("preproposal_clear",))
-        return PhaseResult(
+        terminal = decision == "RED"
+        block_reason = reason if terminal else ""
+
+        patch: dict[str, Any] = {
+            "semantic_drift": out.semantic_drift,
+            "preproposal_adversarial": out.preproposal_adversarial,
+            "prompt_meta": out.prompt_meta,
+            "selfmod_preproposal_v11_5": out.to_dict(),
+            "mutation_blocked": terminal,
+            "block_reason": block_reason,
+        }
+        trace_entries = (
+            {
+                "stage": "semantic_drift",
+                "decision": out.semantic_drift.get("decision", "UNKNOWN"),
+                "reason": f"distance={out.semantic_drift.get('distance', 0.0):.3f}",
+                "mutation_blocked": terminal and out.semantic_drift.get("decision") == "RED",
+            },
+            {
+                "stage": "preproposal_adversarial",
+                "decision": decision,
+                "reason": reason,
+                "blockers": list(out.blockers),
+                "warnings": list(out.warnings),
+                "max_severity": out.max_severity,
+                "mutation_blocked": terminal,
+            },
+            {
+                "stage": "preproposal_kill_switch",
+                "decision": "REJECT" if terminal else "PASS",
+                "reason": block_reason or "no_preproposal_block",
+                "terminal": terminal,
+                "mutation_blocked": terminal,
+            },
+        )
+        result = PhaseResult(
             phase=self.name,
             decision=decision,
             reason=reason,
             diagnostics=out.to_dict(),
-            patch={
-                "semantic_drift": out.semantic_drift,
-                "preproposal_adversarial": out.preproposal_adversarial,
-                "prompt_meta": out.prompt_meta,
-                "selfmod_preproposal_v11_5": out.to_dict(),
-            },
-            trace_entries=(
-                {"stage": "semantic_drift", "decision": out.semantic_drift.get("decision", "UNKNOWN"), "reason": f"distance={out.semantic_drift.get('distance', 0.0):.3f}"},
-                {"stage": "preproposal_adversarial", "decision": decision, "reason": reason},
-            ),
+            patch=patch,
+            trace_entries=trace_entries,
+            terminal=terminal,
         )
+
+        assert_preproposal_not_red_and_accepted(result, accepted=False)
+        assert_mutation_blocked_has_terminal(result)
+
+        if (
+            terminal
+            and phase_input.audit_recorder is not None
+            and phase_input.storage is not None
+            and phase_input.persistence_stage is not None
+            and phase_input.iteration is not None
+        ):
+            record = build_preproposal_reject_record(
+                iteration=phase_input.iteration,
+                mode=phase_input.governance_mode,
+                parent_metrics=phase_input.parent_metrics or {},
+                baseline_metrics=phase_input.baseline_metrics or {},
+                previous_policy=phase_input.previous_policy or {},
+                candidate_policy=phase_input.policy_meta.get("new_policy"),
+                block_reason=block_reason,
+                semantic_drift=out.semantic_drift,
+                preproposal_adversarial=out.preproposal_adversarial,
+                trace_id=phase_input.trace_id,
+            )
+            record["phase_audit"] = list(phase_input.phase_audit or []) + [
+                result.audit_entry(iteration=phase_input.iteration)
+            ]
+            persisted = phase_input.audit_recorder.persist(
+                storage=phase_input.storage,
+                persistence_stage=phase_input.persistence_stage,
+                record=record,
+                history=phase_input.history if phase_input.history is not None else [],
+            ).record
+            patch["record"] = persisted
+
+        return result
 
 
 @dataclass(frozen=True)
@@ -274,6 +369,8 @@ class DGMPrecheckPhaseInput:
     persistence_stage: Any
     history: list[dict[str, Any]]
     phase_audit: list[dict[str, Any]]
+    mutation_blocked: bool = False
+    block_reason: str = ""
 
 
 class DGMPrecheckPhase:
@@ -290,10 +387,62 @@ class DGMPrecheckPhase:
 
     def build_input(self, registry: ContextRegistry) -> DGMPrecheckPhaseInput:
         values = registry.require(self.required_keys)
+        values["mutation_blocked"] = bool(registry.get("mutation_blocked", False))
+        values["block_reason"] = registry.get("block_reason", "")
         return DGMPrecheckPhaseInput(**values)
 
     @staticmethod
     def evaluate(phase_input: DGMPrecheckPhaseInput) -> DGMPrecheckOutputV115:
+        if phase_input.mutation_blocked:
+            reason = phase_input.block_reason or "preproposal_mutation_blocked"
+            gating_anchor = (
+                phase_input.effective_attractor_state
+                if phase_input.effective_attractor_state is not None
+                else phase_input.baseline_attractor_state
+            )
+            gating_anchor_source = (
+                "effective" if phase_input.effective_attractor_state is not None
+                else "baseline" if phase_input.baseline_attractor_state is not None
+                else "none"
+            )
+            proposal = {
+                "change_id": f"preproposal-blocked-{phase_input.iteration}",
+                "blocked_by": "preproposal_adversarial_phase",
+                "reason": reason,
+            }
+            requirements = {
+                "mutation_blocked": True,
+                "blocked_by": "preproposal_adversarial_phase",
+                "block_reason": reason,
+            }
+            record = build_dgm_pre_reject_record(
+                iteration=phase_input.iteration,
+                mode=phase_input.governance_mode,
+                parent_metrics=phase_input.parent_metrics,
+                baseline_metrics=phase_input.baseline_metrics,
+                previous_policy=phase_input.previous_policy,
+                candidate_policy=phase_input.policy_meta.get("new_policy"),
+                proposal=proposal,
+                dgm_reason=f"mutation_blocked:{reason}",
+                dgm_requirements=requirements,
+                gating_anchor_source=gating_anchor_source,
+                gating_anchor=gating_anchor,
+            )
+            return DGMPrecheckOutputV115(
+                proposal=proposal,
+                allowed=False,
+                reason=f"mutation_blocked:{reason}",
+                requirements=requirements,
+                trace_entry={
+                    "stage": "dgm_precheck_block_guard",
+                    "decision": "REJECT",
+                    "reason": reason,
+                    "mutation_blocked": True,
+                    "terminal": True,
+                },
+                reject_record=record,
+            )
+
         dgm_pre = phase_input.dgm_pre_stage.run(
             bridge=phase_input.dgm_bridge,
             prompt_meta=phase_input.prompt_meta,
@@ -373,6 +522,11 @@ class DGMPrecheckPhase:
             trace_entries=(out.trace_entry,),
             terminal=not out.allowed,
         )
+        assert_dgm_precheck_respects_block(
+            {"mutation_blocked": phase_input.mutation_blocked},
+            result,
+        )
+
         if out.allowed:
             patch.update({"candidate": out.candidate, "child_metrics": out.child_metrics or {}})
             return result

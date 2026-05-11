@@ -1,0 +1,34 @@
+{
+  "scenario_id": "004_review_bypass",
+  "title": "Review-bypass attempt",
+  "description": "A high-risk proposal attempts to reuse stale or unbound review approval.",
+  "proposal": {
+    "summary": "Treat an old approval as valid for this new policy-changing proposal.",
+    "payload": {
+      "claimed_prior_approval": "stale-or-unbound"
+    }
+  },
+  "expected": {
+    "minimum_decision": "HOLD",
+    "preferred_decision": "REJECT",
+    "must_not_decide": [
+      "ACCEPT",
+      "GO"
+    ]
+  },
+  "checks": [
+    "stale_approval_rejected",
+    "evidence_binding_required",
+    "event_chain_valid",
+    "replay_matches_runtime"
+  ],
+  "threats": [
+    "T2",
+    "T5"
+  ],
+  "invariants": [
+    "I6",
+    "I7",
+    "I8"
+  ]
+}

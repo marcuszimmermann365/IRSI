@@ -10,7 +10,7 @@ from version import SCHEMA_VERSION
 
 
 def test_version_single_source_of_truth_v103():
-    assert SCHEMA_VERSION in {"10.3", "10.4", "10.5", "10.6", "11.0", "11.1", "11.2", "11.3", "11.4", "11.5", "11.6", "12.0"}
+    assert SCHEMA_VERSION in {"10.3", "10.4", "10.5", "10.6", "11.0", "11.1", "11.2", "11.3", "11.4", "11.5", "11.6", "12.0", "12.1.0", "12.2.0", "13.0.0"}
 
 
 def test_runner_main_is_thin_structured_entrypoint():
