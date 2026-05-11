@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lrsi-project"
+version = "12.0.0"
+description = "LRSI contract-bound self-improvement production-near runtime operations phase system"
+requires-python = ">=3.10"
+readme = "README.md"
+authors = [{name = "LRSI production-near event-based phase runtime system"}]
+dependencies = ["cryptography>=42"]
+
+[project.optional-dependencies]
+live = ["openai>=1.0.0"]
+dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10", "bandit>=1.7"]
+
+[tool.setuptools]
+py-modules = [
+  "adversarial_orchestrator", "audit_sinks", "calibration", "evidence", "review_interface", "semantic_drift", "signing",
+  "agency_verifier", "agent", "attractor_engine", "auxiliary_indicators",
+  "axiom_conflict", "be1_value_model", "bewaehrungsstrecke", "carrier_erosion",
+  "config", "counter_check", "deception_surface", "dgm_bridge",
+  "dissent_analyzer", "drift_pressure", "eval", "external_integrity",
+  "gate", "governance_takt", "human_coupling", "human_override",
+  "llm_client", "lrsi_logging", "memory", "memory_gate", "meta", "mirror",
+  "norm_erosion", "openness_model", "pareto_admissibility", "path_model",
+  "pipeline_contracts", "policy", "policy_gate", "proxy_integrity",
+  "replay_critic", "roles", "runner", "eventsourcing", "scenario_frontier_lab",
+  "scenario_sentinel_x", "sham_resonance", "silence_monitor", "storage",
+  "subject_model", "synthetic_sincerity", "tasks", "truth_sensitivity", "version"
+]
+packages = ["dgm", "pipeline", "llm_fixtures"]
+
+[tool.setuptools.package-data]
+llm_fixtures = ["*.json", "*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501", "E741", "E701", "E702", "E402", "F403", "F405", "F841"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_configs = true
+check_untyped_defs = false
+
+[tool.bandit]
+skips = ["B101"]
+
+[[tool.mypy.overrides]]
+module = [
+  "pipeline.execution_plan",
+  "pipeline.runtime_helpers",
+]
+check_untyped_defs = true
