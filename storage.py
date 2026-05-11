@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import uuid
 from contextlib import contextmanager
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from audit_sinks import AuditSealService, LocalWORMDirectorySink
+from security_errors import LRSISecurityError
 from eventsourcing import (
     AppendOnlyEventStore,
     RuntimeEvent,
@@ -23,10 +25,68 @@ from eventsourcing import (
     replay_decisions,
     validate_event_store_production_config,
 )
+from invariants import (
+    assert_council_red_always_leads_to_stop,
+    assert_event_chain_integrity_after_block,
+    assert_final_gate_respects_blocked_state,
+    assert_hold_mode_blocks_all_mutations,
+    assert_no_mutation_without_preproposal_check,
+    assert_blocked_record_effective_policy_unchanged,
+    assert_event_refs_match_phase_audit,
+)
 from signing import adapter_from_env, verify_signature_payload
 from version import SCHEMA_VERSION
 
 GENESIS_HASH = "0" * 64
+
+
+SECURITY_LEVEL = 35
+AUDIT_LEVEL = 25
+logging.addLevelName(SECURITY_LEVEL, "SECURITY")
+logging.addLevelName(AUDIT_LEVEL, "AUDIT")
+
+SECURITY_LOGGER = logging.getLogger("lrsi.security.storage")
+SECURITY_LOGGER.addHandler(logging.NullHandler())
+SECURITY_LOGGER.propagate = False
+
+
+def _structured_security_log(event_name: str, *, level: int = logging.INFO, **context) -> None:
+    payload = {
+        "security_event": event_name,
+        "component": "storage",
+        "context": json_safe(context),
+    }
+    SECURITY_LOGGER.log(level, json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str))
+
+
+def _record_security_context(record: dict) -> dict:
+    return {
+        "iteration": record.get("iteration"),
+        "trace_id": record.get("trace_id"),
+        "mode": record.get("mode"),
+        "gate_decision": record.get("gate_decision"),
+        "gate_reason": record.get("gate_reason"),
+        "final_decision": record.get("final_decision"),
+        "accepted": record.get("accepted"),
+        "mutation_blocked": record.get("mutation_blocked"),
+        "block_reason": record.get("block_reason"),
+        "record_hash": record.get("record_hash"),
+        "previous_record_hash": record.get("previous_record_hash"),
+        "phase_audit_count": len(record.get("phase_audit", []) or []),
+        "event_ref_count": len(record.get("event_refs_v12", []) or []),
+        "schema_version": record.get("schema_version"),
+        "run_id": record.get("run_id"),
+    }
+
+
+def _record_is_critical(record: dict) -> bool:
+    decision = str(record.get("final_decision") or record.get("gate_decision") or "").upper()
+    return (
+        bool(record.get("mutation_blocked"))
+        or bool(record.get("block_reason"))
+        or decision in {"RED", "STOP", "HOLD", "REJECT", "ROLLBACK"}
+        or str(record.get("gate_reason", "")).startswith("preproposal:")
+    )
 
 
 def utc_now_iso():
@@ -299,14 +359,22 @@ class Storage:
         if event_store is not None:
             if prod_enabled:
                 if not production_mode_enabled(getattr(event_store, "production_mode", False)):
-                    raise RuntimeError("production storage requires injected event_store.production_mode=True")
+                    raise LRSISecurityError(
+                        "production_storage_requires_production_event_store",
+                        "production storage requires injected event_store.production_mode=True",
+                        context={"event_store_type": type(event_store).__name__},
+                    )
                 validate_event_store_production_config(
                     signing_adapter=getattr(event_store, "signing_adapter", None),
                     external_sink=getattr(event_store, "external_sink", None),
                 )
                 ok, errors = event_store.verify(require_signature=True)
                 if not ok:
-                    raise RuntimeError(f"production injected event store failed verification: {errors}")
+                    raise LRSISecurityError(
+                        "production_injected_event_store_verification_failed",
+                        "production injected event store failed verification",
+                        context={"errors": errors},
+                    )
             self.event_store = event_store
         else:
             self.event_store = AppendOnlyEventStore(
@@ -414,14 +482,51 @@ class Storage:
         # materialized record.  Append returns the canonical sequence/hash; the
         # record stores only compact references to those committed events.
         record = dict(record)
+        _structured_security_log(
+            "iteration_persist_started",
+            record_context=_record_security_context(record),
+        )
+        # Sprint 2/4: fail closed on central safety-invariant violations before
+        # materialized records or audit events are committed.  Central handling
+        # logs the record context once in storage in addition to the invariant
+        # namespace log emitted by the invariant itself.
+        try:
+            assert_no_mutation_without_preproposal_check(record)
+            assert_final_gate_respects_blocked_state(record, record)
+            assert_hold_mode_blocks_all_mutations(record)
+            assert_council_red_always_leads_to_stop(record.get("council_decision"), record)
+            assert_blocked_record_effective_policy_unchanged(record)
+        except LRSISecurityError as exc:
+            _structured_security_log(
+                "security_invariant_precommit_failed",
+                level=SECURITY_LEVEL,
+                security_code=getattr(exc, "code", type(exc).__name__),
+                error=str(exc),
+                record_context=_record_security_context(record),
+                invariant_context=getattr(exc, "context", {}),
+            )
+            raise
+
         completed_events = self._complete_phase_events_from_audit(record)
         committed_events = [self.event_store.append(raw_event) for raw_event in completed_events]
         event_refs = [event_reference(event) for event in committed_events]
         record["event_refs_v12"] = event_refs
         # Backward-compatible field name, intentionally compact reference-shaped.
         record["events_v12"] = event_refs
+        try:
+            assert_event_refs_match_phase_audit(record)
+        except LRSISecurityError as exc:
+            _structured_security_log(
+                "security_event_ref_invariant_failed",
+                level=SECURITY_LEVEL,
+                security_code=getattr(exc, "code", type(exc).__name__),
+                error=str(exc),
+                record_context=_record_security_context(record),
+                invariant_context=getattr(exc, "context", {}),
+            )
+            raise
         persisted = self.backend.append(record)
-        self.event_store.append(RuntimeEvent(
+        audit_event = self.event_store.append(RuntimeEvent(
             event_type="audit.iteration_record",
             phase="persistence_phase",
             iteration=persisted.get("iteration"),
@@ -429,6 +534,45 @@ class Storage:
             stream_id=self.run_id,
             payload={"record": self._record_event_summary(persisted)},
         ))
+        _structured_security_log(
+            "iteration_persisted",
+            record_context=_record_security_context(persisted),
+            committed_event_count=len(committed_events),
+            audit_event_ref=event_reference(audit_event),
+        )
+        if _record_is_critical(persisted):
+            rc = _record_security_context(persisted)
+            _structured_security_log(
+                "critical_decision_persisted",
+                level=SECURITY_LEVEL,
+                trace_id=rc.get("trace_id"),
+                iteration=rc.get("iteration"),
+                decision=rc.get("final_decision"),
+                gate_decision=rc.get("gate_decision"),
+                gate_reason=rc.get("gate_reason"),
+                record_hash=rc.get("record_hash"),
+                previous_record_hash=rc.get("previous_record_hash"),
+                record_context=rc,
+                event_refs=event_refs,
+            )
+        if persisted.get("mutation_blocked"):
+            events = self.event_store.load()
+            assert_event_chain_integrity_after_block(
+                events,
+                block_iteration=persisted.get("iteration"),
+            )
+            rc = _record_security_context(persisted)
+            _structured_security_log(
+                "blocked_mutation_event_chain_verified",
+                level=SECURITY_LEVEL,
+                trace_id=rc.get("trace_id"),
+                iteration=rc.get("iteration"),
+                decision=rc.get("final_decision"),
+                block_reason=rc.get("block_reason"),
+                record_hash=rc.get("record_hash"),
+                record_context=rc,
+                event_count=len(events),
+            )
         return persisted
 
     def load(self) -> list[dict]:
