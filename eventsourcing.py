@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import uuid
 from contextlib import contextmanager
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Any, Iterable, Protocol
 
 from audit_sinks import ExternalAuditSink, merkle_root
+from security_errors import LRSISecurityError
 from signing import SigningAdapter, adapter_from_env, verify_signature_payload
 from version import SCHEMA_VERSION
 
@@ -35,6 +37,80 @@ GENESIS_EVENT_HASH = "0" * 64
 
 DEFAULT_EVENT_PAYLOAD_BUDGET_BYTES = int(os.getenv("LRSI_EVENT_PAYLOAD_BUDGET_BYTES", "65536"))
 DEFAULT_PATCH_PAYLOAD_BUDGET_BYTES = int(os.getenv("LRSI_PATCH_PAYLOAD_BUDGET_BYTES", "16384"))
+
+
+SECURITY_LEVEL = 35
+AUDIT_LEVEL = 25
+logging.addLevelName(SECURITY_LEVEL, "SECURITY")
+logging.addLevelName(AUDIT_LEVEL, "AUDIT")
+
+SECURITY_LOGGER = logging.getLogger("lrsi.security.eventsourcing")
+SECURITY_LOGGER.addHandler(logging.NullHandler())
+SECURITY_LOGGER.propagate = False
+
+
+def _structured_security_log(event_name: str, *, level: int = logging.INFO, **context: Any) -> None:
+    payload = {
+        "security_event": event_name,
+        "component": "eventsourcing",
+        "context": json_safe(context),
+    }
+    SECURITY_LOGGER.log(level, json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str))
+
+
+def _event_decision_context(event: dict[str, Any]) -> dict[str, Any]:
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    phase_result = payload.get("phase_result") if isinstance(payload.get("phase_result"), dict) else {}
+    patch = payload.get("patch") if isinstance(payload.get("patch"), dict) else {}
+    record = payload.get("record") if isinstance(payload.get("record"), dict) else {}
+    decision = (
+        payload.get("decision")
+        or phase_result.get("decision")
+        or record.get("final_decision")
+        or event.get("decision")
+    )
+    reason = (
+        payload.get("reason")
+        or phase_result.get("reason")
+        or record.get("gate_reason")
+        or event.get("reason")
+    )
+    terminal = bool(payload.get("terminal") or phase_result.get("terminal"))
+    mutation_blocked = bool(
+        payload.get("mutation_blocked")
+        or phase_result.get("mutation_blocked")
+        or patch.get("mutation_blocked")
+        or record.get("mutation_blocked")
+    )
+    block_reason = payload.get("block_reason") or patch.get("block_reason") or record.get("block_reason")
+    return {
+        "event_type": event.get("event_type"),
+        "phase": event.get("phase"),
+        "iteration": event.get("iteration"),
+        "trace_id": event.get("trace_id"),
+        "sequence": event.get("sequence"),
+        "event_id": event.get("event_id"),
+        "event_hash": event.get("event_hash"),
+        "previous_event_hash": event.get("previous_event_hash"),
+        "decision": decision,
+        "reason": reason,
+        "terminal": terminal,
+        "mutation_blocked": mutation_blocked,
+        "block_reason": block_reason,
+        "payload_bytes": json_byte_size(payload) if payload else 0,
+        "schema_version": event.get("schema_version"),
+        "stream_id": event.get("stream_id"),
+        "signed": bool(event.get("event_signature")),
+    }
+
+
+def _is_critical_event_context(context: dict[str, Any]) -> bool:
+    decision = str(context.get("decision") or "").upper()
+    return (
+        bool(context.get("terminal"))
+        or bool(context.get("mutation_blocked"))
+        or decision in {"RED", "STOP", "HOLD", "REJECT", "ROLLBACK"}
+    )
 
 
 def json_byte_size(data: Any) -> int:
@@ -91,8 +167,11 @@ def event_reference(event: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in ref.items() if v is not None}
 
 
-class EventStoreCorruptionError(ValueError):
+class EventStoreCorruptionError(LRSISecurityError):
     """Raised when the JSONL event stream contains non-recoverable corruption."""
+
+    def __init__(self, message: str, *, context: dict[str, Any] | None = None):
+        super().__init__("event_store_corruption", message, context=context)
 
 
 def production_mode_enabled(explicit: bool | None = None) -> bool:
@@ -111,14 +190,28 @@ def validate_event_store_production_config(*, signing_adapter: SigningAdapter | 
     mode = os.getenv("AUDIT_SIGNING_MODE", "").lower().strip()
     if signing_adapter is None:
         if mode not in {"ed25519", "public-key", "public_key"}:
-            raise RuntimeError(
-                "production event store requires AUDIT_SIGNING_MODE=ed25519/public-key; HMAC is dev-only"
+            raise LRSISecurityError(
+                "production_requires_public_key_signing_mode",
+                "production event store requires AUDIT_SIGNING_MODE=ed25519/public-key; HMAC is dev-only",
+                context={"audit_signing_mode": mode or "<unset>"},
             )
-        raise RuntimeError("production event store requires a configured Ed25519 signing adapter")
+        raise LRSISecurityError(
+            "production_requires_ed25519_signing_adapter",
+            "production event store requires a configured Ed25519 signing adapter",
+            context={"signing_adapter_present": bool(adapter)},
+        )
     if not str(getattr(signing_adapter, "algorithm", "")).startswith("Ed25519"):
-        raise RuntimeError("production event store requires an Ed25519 signing adapter; HMAC is dev-only")
+        raise LRSISecurityError(
+            "production_requires_ed25519_not_hmac",
+            "production event store requires an Ed25519 signing adapter; HMAC is dev-only",
+            context={"signing_mode": getattr(signing_adapter, "mode", "unknown")},
+        )
     if external_sink is None:
-        raise RuntimeError("production event store requires AUDIT_WORM_DIR or an external audit sink")
+        raise LRSISecurityError(
+            "production_requires_external_or_worm_sink",
+            "production event store requires AUDIT_WORM_DIR or an external audit sink",
+            context={"has_external_sink": bool(external_sink), "audit_worm_dir": os.getenv("AUDIT_WORM_DIR", "")},
+        )
 
 
 def utc_now_iso() -> str:
@@ -450,7 +543,11 @@ class AppendOnlyEventStore:
                 events = self._load_unlocked()
                 ok, errors = verify_event_chain(events, require_signature=True)
                 if not ok:
-                    raise RuntimeError(f"production event store failed signature/hash verification: {errors}")
+                    raise LRSISecurityError(
+                        "production_event_store_verification_failed",
+                        "production event store failed signature/hash verification",
+                        context={"errors": errors},
+                    )
                 self._cursor = self._cursor_from_events_unlocked(events)
                 self._write_cursor_unlocked(self._cursor)
             else:
@@ -637,7 +734,11 @@ class AppendOnlyEventStore:
             )
         schema_errors = validate_event_schema(data)
         if schema_errors:
-            raise RuntimeError(f"event schema validation failed: {schema_errors}")
+            raise LRSISecurityError(
+                "pending_event_schema_validation_failed",
+                "pending event schema validation failed",
+                context={"errors": schema_errors, "event_context": _event_decision_context(data)},
+            )
         _append_jsonl_line(self.path, data)
         cursor = EventStoreCursor(
             last_sequence=int(data["sequence"]),
@@ -774,7 +875,17 @@ class AppendOnlyEventStore:
             data["event_hash"] = _hash_event_payload(data)
             schema_errors = validate_event_schema(data)
             if schema_errors:
-                raise RuntimeError(f"event schema validation failed: {schema_errors}")
+                _structured_security_log(
+                    "event_schema_validation_failed",
+                    level=logging.ERROR,
+                    errors=schema_errors,
+                    event_context=_event_decision_context(data),
+                )
+                raise LRSISecurityError(
+                    "event_schema_validation_failed",
+                    "event schema validation failed",
+                    context={"errors": schema_errors, "event_context": _event_decision_context(data)},
+                )
             if self.signing_adapter:
                 data.update({
                     key.replace("audit_", "event_"): value
@@ -786,7 +897,17 @@ class AppendOnlyEventStore:
                     data, previous_hash=previous_hash, sequence=sequence, require_signature=True
                 )
                 if not ok:
-                    raise RuntimeError(f"production event append failed signature/hash verification: {errors}")
+                    _structured_security_log(
+                        "production_event_append_verification_failed",
+                        level=logging.ERROR,
+                        errors=errors,
+                        event_context=_event_decision_context(data),
+                    )
+                    raise LRSISecurityError(
+                        "production_event_append_verification_failed",
+                        "production event append failed signature/hash verification",
+                        context={"errors": errors, "event_context": _event_decision_context(data)},
+                    )
             pending_path = None
             external_write = None
             if self.external_sink:
@@ -798,6 +919,30 @@ class AppendOnlyEventStore:
             self._append_local_committed_unlocked(data)
             if pending_path:
                 _remove_file_if_exists(pending_path)
+            event_context = _event_decision_context(data)
+            _structured_security_log(
+                "event_appended",
+                event_context=event_context,
+                externalized=bool(external_write),
+                production_mode=bool(self.production_mode),
+                stream_id=data.get("stream_id"),
+                path=self.path,
+            )
+            if _is_critical_event_context(event_context):
+                _structured_security_log(
+                    "critical_event_committed",
+                    level=SECURITY_LEVEL,
+                    trace_id=event_context.get("trace_id"),
+                    iteration=event_context.get("iteration"),
+                    decision=event_context.get("decision"),
+                    phase=event_context.get("phase"),
+                    reason=event_context.get("reason"),
+                    event_hash=event_context.get("event_hash"),
+                    previous_event_hash=event_context.get("previous_event_hash"),
+                    event_context=event_context,
+                    externalized=bool(external_write),
+                    production_mode=bool(self.production_mode),
+                )
             if external_write:
                 returned = dict(data)
                 returned["external_write"] = external_write

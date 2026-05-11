@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lrsi-project"
-version = "12.0.0"
+version = "13.0.0"
 description = "LRSI contract-bound self-improvement production-near runtime operations phase system"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -13,12 +13,12 @@ dependencies = ["cryptography>=42"]
 
 [project.optional-dependencies]
 live = ["openai>=1.0.0"]
-dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10", "bandit>=1.7"]
+dev = ["pytest>=8.0", "hypothesis>=6.100", "ruff>=0.5", "mypy>=1.10", "bandit>=1.7"]
 
 [tool.setuptools]
 py-modules = [
-  "adversarial_orchestrator", "audit_sinks", "calibration", "evidence", "review_interface", "semantic_drift", "signing",
-  "agency_verifier", "agent", "attractor_engine", "auxiliary_indicators",
+  "adversarial_orchestrator", "audit_sinks", "calibration", "evidence", "review_interface", "semantic_drift", "signing", "security_errors",
+  "agency_verifier", "agent", "attractor_engine", "invariants", "auxiliary_indicators",
   "axiom_conflict", "be1_value_model", "bewaehrungsstrecke", "carrier_erosion",
   "config", "counter_check", "deception_surface", "dgm_bridge",
   "dissent_analyzer", "drift_pressure", "eval", "external_integrity",

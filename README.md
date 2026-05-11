@@ -1,82 +1,172 @@
-# LRSI Project V12.0
+# LRSI Runtime Core v13.0.0
 
-V12.0 converts the production-near phase runtime into an **event-sourced runtime**.  The materialized `run_log.json` remains available for compatibility, but every phase now emits a runtime event and the append-only event stream is the primary replay substrate.
+**LRSI Runtime Core** is a research-oriented, event-sourced AI safety runtime
+for studying interruptibility, auditability, human review binding, replayable
+decisions, payload-bounded diagnostics, and self-modification boundaries.
 
-## What changed in V12.0
+The central question is:
 
-- every `PhaseResult` automatically emits a `phase.result` runtime event;
-- `Storage` now writes both the materialized iteration record and an append-only `*.events.jsonl` event stream;
-- `eventsourcing.py` provides:
-  - `RuntimeEvent`,
-  - `AppendOnlyEventStore`,
-  - strict event-chain verification,
-  - event projection,
-  - decision replay from events,
-  - event-stream sealing;
-- `EvidenceBundle` case files are now hash-bound and can be HMAC/Ed25519 signed;
-- two-person review can bind approvals to a signed evidence bundle;
-- WORM/external sink integration is available through `ExternalAuditSink` and `LocalWORMDirectorySink`;
-- replay can reconstruct final decisions from `audit.iteration_record` and `phase.result` events.
+> How does a system recognize, record, and enforce that it must not continue?
+
+This repository is not a complete AI alignment solution and is not a certified
+production safety system. It is a professional research runtime and security
+review substrate.
+
+## Core features
+
+- STOP / HOLD / GO runtime control
+- hard pre-proposal kill-switch for RED self-modification attempts
+- central safety invariants in `invariants.py`
+- unified `LRSISecurityError` hierarchy in `security_errors.py`
+- event-sourced canonical audit trail
+- append-only JSONL event stream with hash-chain verification
+- committed event references in materialized records
+- replayable final decisions
+- human-review and evidence-bundle support
+- WORM / external audit sink hooks
+- payload-bounded diagnostics
+- structured security logs
+- property-based security tests with Hypothesis
+
+## Installation
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
 
 ## Run
 
 ```bash
+python runner.py --iterations 3 --storage-path run_log.json --memory-path memory_store.json
+```
+
+Quiet mode:
+
+```bash
+python runner.py --iterations 3 --quiet
+```
+
+Verbose mode:
+
+```bash
+python runner.py --iterations 3 --verbose
+```
+
+## Test
+
+```bash
 python -m compileall -q .
 python -m pytest -q -rs
-python stress_tests_v120_event_sourced_runtime.py
-make check
+python scripts/check_phase_event_coverage.py --run-sample --iterations 3
 ```
+
+Property-based tests:
+
+```bash
+python -m pytest tests/test_v122_property_based_security.py -q
+```
+
+## Audit and replay
 
 A normal run writes:
 
 ```text
 run_log.json
 run_log.json.events.jsonl
+run_log.json.events.jsonl.cursor.json
 memory_store.json
 ```
 
-`run_log.json` is a compatibility/materialized view.  The event stream is the V12 canonical runtime audit substrate.
-
-## Event replay
+`run_log.json` is a materialized compatibility view. The canonical audit
+source is the append-only event stream.
 
 ```python
 from storage import Storage
 
 storage = Storage("run_log.json")
+ok, errors = storage.verify_event_chain()
 projection = storage.project_events()
 replay = storage.replay_decisions()
-ok, errors = storage.verify_event_chain()
 ```
 
-## WORM/external sink
+## Security model
 
-For local validation of write-once behavior:
+v13.0.0 enforces a fail-closed self-modification boundary:
 
-```bash
-AUDIT_WORM_DIR=/tmp/lrsi-worm python runner.py
+```text
+Mutation
+  -> PreProposalAdversarialPhase
+  -> DGMPrecheckPhase
+  -> downstream governance
+  -> Final Gate
+  -> Persistence
 ```
 
-Each committed event is mirrored through the write-once sink contract.  Production deployments should replace the local sink with S3 Object Lock, EventStoreDB, Kafka with governed retention, or an equivalent independently controlled audit substrate.
+A RED pre-proposal result is terminal:
 
-## Signed Evidence Bundles
-
-Set one of the signing modes before generating review case files:
-
-```bash
-AUDIT_SIGNING_MODE=hmac AUDIT_HMAC_KEY=dev-secret python runner.py
-# or
-AUDIT_SIGNING_MODE=ed25519 AUDIT_ED25519_PRIVATE_KEY=<base64-key> AUDIT_SIGNER_ID=runtime-1 python runner.py
+```text
+decision: RED
+terminal: true
+mutation_blocked: true
+block_reason: <reason>
 ```
 
-Soft-RED approvals can be bound to the signed evidence bundle via the two-person review gate.
+Central invariants prevent:
 
-## Status
+- RED pre-proposal acceptance;
+- blocked mutation continuation through DGM or final gate;
+- mutation without pre-proposal adversarial coverage;
+- HOLD-state mutation application;
+- Council RED being softened into GO/HOLD/ACCEPT;
+- terminal events with GO/ACCEPT semantics;
+- blocked records changing the effective policy;
+- phase audit records lacking committed event references.
 
-V12.0 is a **production-near event-sourced runtime**, not a fully certified production safety system.  Remaining deployment obligations include external WORM infrastructure, key management, real reviewer identity, calibrated thresholds and broad live-LLM validation.
+See:
 
-## Key documents
+- `SECURITY_MODEL.md`
+- `INVARIANTS.md`
+- `SECURITY_CHANGES_v13.0.md`
+- `ARCHITECTURE.md`
+- `OPERATIONS.md`
 
-- `docs/V12_0_EVENT_SOURCED_RUNTIME.md`
-- `docs/EVENT_STORE_SPEC.md`
-- `docs/SIGNED_EVIDENCE_REVIEW.md`
-- `docs/V11_6_RUNTIME_OPERATIONS_MIGRATION.md`
+## Structured security logs
+
+Security logs are quiet by default. Attach handlers explicitly to:
+
+- `lrsi.security.invariants`
+- `lrsi.security.eventsourcing`
+- `lrsi.security.storage`
+
+v13.0.0 defines symbolic logging levels:
+
+- `SECURITY = 35`
+- `AUDIT = 25`
+
+## Production-like operation
+
+Production-like operation should require:
+
+- asymmetric event signing;
+- independently governed external/WORM audit sink;
+- protected signing keys;
+- event-chain verification;
+- replay checks;
+- reviewer identity and authorization outside this runtime.
+
+See `OPERATIONS.md`.
+
+## Known limitations
+
+- This is a research runtime, not a certified production safety system.
+- It does not secure model weights or training-time alignment.
+- Reviewer identity and authorization must be provided by deployment infrastructure.
+- WORM/external sink guarantees depend on actual infrastructure.
+- Invariants are engineering constraints and tests, not a formal proof of safety.
+- LLM behavior and adversarial diagnostics still require empirical calibration.
+
+## License
+
+Apache License 2.0. See `LICENSE`.
