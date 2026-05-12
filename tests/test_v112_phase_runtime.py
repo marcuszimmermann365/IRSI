@@ -8,7 +8,7 @@ from version import SCHEMA_VERSION
 
 
 def test_schema_version_v112():
-    assert SCHEMA_VERSION in {"11.2", "11.3", "11.4", "11.5", "11.6", "12.0", "12.1.0", "12.2.0", "13.0.0", "13.2.0"}
+    assert SCHEMA_VERSION in {"11.2", "11.3", "11.4", "11.5", "11.6", "12.0", "12.1.0", "12.2.0", "13.0.0", "13.2.0", "13.3.0"}
 
 
 def test_phase_result_generates_audit_entry_without_business_logic():

@@ -249,4 +249,4 @@ def test_evidence_bundle_is_signed_and_two_factor_review_binds_to_case(monkeypat
 
 
 def test_runtime_version_is_v12():
-    assert SCHEMA_VERSION in {"12.0", "12.1.0", "12.2.0", "13.0.0", "13.2.0"}
+    assert SCHEMA_VERSION in {"12.0", "12.1.0", "12.2.0", "13.0.0", "13.2.0", "13.3.0"}

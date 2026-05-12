@@ -1,5 +1,26 @@
 # Changelog
 
+## v13.3.0 — Philosophical Foundation Documentation
+
+### Added
+
+- New `docs/philosophical-foundation/` directory.
+- Included D-series foundation PDFs: D1, D2, D3, D3a, D4, D4a, D5, D6, D7, D8.
+- Added `docs/philosophical-foundation/README.md` as entry point into the conceptual foundation.
+- Added `docs/philosophical-foundation/INDEX.md` as compact D-series map.
+
+### Changed
+
+- Main `README.md` now prominently invites further development.
+- Main `README.md` links to the most important technical and philosophical entry documents.
+- Version bumped to `13.3.0`.
+
+### Compatibility
+
+- No runtime behavior changes.
+- The new files are documentation and philosophical foundation material only.
+
+
 ## v13.2.0 — Contributor Onboarding and IterationContext Refactoring Plan
 
 ### Added
