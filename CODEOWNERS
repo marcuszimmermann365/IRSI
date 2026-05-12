@@ -1,0 +1,22 @@
+# CODEOWNERS
+#
+# Replace @YOUR_GITHUB_HANDLE or @YOUR_ORG/YOUR_TEAM before relying on this
+# file for required reviews in GitHub branch protection.
+#
+# Security-critical runtime and audit files should require the most careful review.
+
+* @YOUR_GITHUB_HANDLE
+
+/invariants.py @YOUR_GITHUB_HANDLE
+/security_errors.py @YOUR_GITHUB_HANDLE
+/eventsourcing.py @YOUR_GITHUB_HANDLE
+/storage.py @YOUR_GITHUB_HANDLE
+/pipeline/self_modification_phases.py @YOUR_GITHUB_HANDLE
+/pipeline/phase_runtime.py @YOUR_GITHUB_HANDLE
+/pipeline/phase_flow.py @YOUR_GITHUB_HANDLE
+/pipeline/phase_safety.py @YOUR_GITHUB_HANDLE
+/tests/test_v122_property_based_security.py @YOUR_GITHUB_HANDLE
+/tests/test_v130_integration_runtime.py @YOUR_GITHUB_HANDLE
+/SECURITY_MODEL.md @YOUR_GITHUB_HANDLE
+/INVARIANTS.md @YOUR_GITHUB_HANDLE
+/OPERATIONS.md @YOUR_GITHUB_HANDLE

@@ -43,10 +43,44 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = [
+  ".git",
+  ".venv",
+  "venv",
+  "build",
+  "dist",
+  "__pycache__",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  "*.pending",
+  "run_log.json",
+  "run_log.json.events.jsonl",
+  "memory_store.json",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-ignore = ["E501", "E741", "E701", "E702", "E402", "F403", "F405", "F841"]
+ignore = [
+  "E501",  # long lines are tolerated in docs-like constants and fixtures
+  "E741",  # ambiguous variable names retained in legacy math/code paths
+  "E701",  # legacy one-line statements
+  "E702",  # legacy semicolon-separated statements
+  "E402",  # imports after path/env setup in tests/scripts
+  "F403",  # legacy star imports
+  "F405",  # names from legacy star imports
+  "F841",  # intentionally retained diagnostic locals in legacy tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E402"]
+"stress_tests*.py" = ["E402"]
+"scripts/**/*.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.10"
@@ -55,7 +89,22 @@ warn_unused_configs = true
 check_untyped_defs = false
 
 [tool.bandit]
-skips = ["B101"]
+skips = [
+  "B101",  # assert is intentionally used throughout the test suite
+]
+exclude_dirs = [
+  ".git",
+  ".venv",
+  "venv",
+  "build",
+  "dist",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  "tests",
+  "llm_fixtures",
+  "dgm",
+]
 
 [[tool.mypy.overrides]]
 module = [
