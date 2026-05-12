@@ -19,7 +19,7 @@ def _phase_names(record):
 
 
 def test_schema_version_v116():
-    assert SCHEMA_VERSION in {"11.6", "12.0", "12.1.0", "12.2.0", "13.0.0"}
+    assert SCHEMA_VERSION in {"11.6", "12.0", "12.1.0", "12.2.0", "13.0.0", "13.2.0"}
 
 
 def test_runtime_operation_phases_expose_explicit_contracts():

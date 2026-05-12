@@ -101,6 +101,75 @@ from truth_sensitivity import TruthSensitivityLayer
 from version import SCHEMA_VERSION
 
 
+# Future refactoring proposal for v13.2+
+# ==========================================
+#
+# IterationContext is intentionally kept backward-compatible in v13.2.0.  It is
+# still a flat dataclass because many existing phases, records, tests, and replay
+# helpers access its attributes directly.
+#
+# The next maintainability step should be a gradual, parallel migration toward
+# smaller thematic context objects.  The sketch below is intentionally not wired
+# into the runtime yet.  It documents the desired target structure and gives
+# contributors a safe implementation path.
+#
+# Suggested target structure:
+#
+#     @dataclass
+#     class SafetyContext:
+#         preproposal_adversarial: dict = field(default_factory=dict)
+#         dgm_pre: Any = None
+#         dgm_allowed: bool = False
+#         mutation_blocked: bool = False
+#         block_reason: str = ""
+#         terminal: bool = False
+#
+#     @dataclass
+#     class GovernanceContext:
+#         council_decision: str = ""
+#         council_reasons: list[str] = field(default_factory=list)
+#         final_decision: str = ""
+#         accepted: bool = False
+#
+#     @dataclass
+#     class AuditContext:
+#         phase_audit: list[dict] = field(default_factory=list)
+#         decision_trace: list[dict] = field(default_factory=list)
+#         event_projection: dict = field(default_factory=dict)
+#
+#     @dataclass
+#     class MetricsContext:
+#         sigma: float = 0.0
+#         l_val: float = 0.0
+#         o_val: float = 0.0
+#         d_val: float = 0.0
+#         ss_risk: float = 0.0
+#         sham_risk: float = 0.0
+#
+#     @dataclass
+#     class IterationContext:
+#         iteration: int
+#         safety: SafetyContext = field(default_factory=SafetyContext)
+#         governance: GovernanceContext = field(default_factory=GovernanceContext)
+#         audit: AuditContext = field(default_factory=AuditContext)
+#         metrics: MetricsContext = field(default_factory=MetricsContext)
+#         curr_state: Any = None
+#         effective_policy: dict | None = None
+#
+# Migration plan:
+#   1. Add the small dataclasses in pipeline/phase_contexts.py.
+#   2. Add them to IterationContext in parallel with the existing flat fields.
+#   3. Migrate phases one group at a time, with adapter properties if needed.
+#   4. Keep tests and replay fixtures green throughout the migration.
+#   5. Remove the old flat fields only after 2-3 compatibility releases.
+#
+# Expected benefits:
+#   - easier onboarding for contributors;
+#   - clearer ownership of safety/governance/audit/metric state;
+#   - smaller mocks in tests;
+#   - fewer "magic" fields in the main runtime context.
+#
+
 @dataclass
 class IterationContext:
     """Typed per-iteration contract surface for the structured runner.
