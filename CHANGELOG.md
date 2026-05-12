@@ -1,5 +1,25 @@
 # Changelog
 
+## v13.2.0 — Contributor Onboarding and IterationContext Refactoring Plan
+
+### Added
+
+- Rewritten `CONTRIBUTING.md` with quickstart, good-first-issue guidance, workflow, security-sensitive areas, and new-phase rules.
+- `docs/good-first-issues.md` with 10 ready-to-copy contributor issues.
+- Future `IterationContext` refactoring proposal in `pipeline/runner_core.py`.
+
+### Changed
+
+- Version bumped to `13.2.0` in `version.py` and `pyproject.toml`.
+- Schema-version compatibility tests updated for `13.2.0`.
+
+### Compatibility
+
+- No runtime behavior changes.
+- Existing flat `IterationContext` remains intact.
+- Refactoring proposal is documentation/commentary only and is not wired into execution.
+
+
 ## v13.0.0 — Final Security Hardening and Release Preparation
 
 ### Added
